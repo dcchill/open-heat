@@ -22,7 +22,7 @@ netsh wlan show interfaces
 4. Click the matching spot on the map to record the current signal.
 5. Keep walking and clicking to build the heatmap.
 
-Right-click a sample point or AP marker to remove it. Use **Save CSV** and **Load CSV** to move raw samples between tools.
+Hover over an existing sample point to inspect its recorded SSID, BSSID, channel, RSSI, and timestamp. Drag a sample point to correct its map position. Right-click a sample point or AP marker to remove it. Use **Save CSV** and **Load CSV** to move raw samples between tools.
 
 The live panel shows details for the access point you are currently connected to, including BSSID, channel, radio type, security, link rates, and adapter name. New samples save the current AP details into the CSV.
 
@@ -32,9 +32,13 @@ Use **Auto sample at cursor** to record a reading every few seconds at the curre
 
 Use **Save session** and **Load session** to keep the full survey state, including samples, AP markers, floor plan path, and heatmap settings.
 
-Use **Export image** to save the current floor plan, heatmap, samples, and AP markers as a dependency-free PPM image.
+Use **Export image** to save the current floor plan, heatmap, samples, and AP markers as a PNG image.
 
 Use **Add AP marker** to place a visual AP label on the map. This is only a visual marker and does not affect signal calculations.
+
+The coverage summary shows average, weakest, and strongest sampled RSSI, plus the estimated percentage of the mapped area below the weak-zone threshold. Use **Highlight weak zones** and **Weak-zone threshold dBm** to make low-coverage areas stand out.
+
+Use the weak and strong color sliders to tune the heatmap color scale for your target environment.
 
 ## Floor Plans
 
@@ -43,6 +47,8 @@ Use **Load floor plan** to place a PNG or GIF floor plan behind the heatmap. If 
 When **Keep heat inside black walls** is enabled, the app treats dark pixels in the floor plan as barriers. This keeps signal color from blending through black wall lines into a separate room. Use **Wall darkness** to tune how dark a pixel must be before it counts as a wall.
 
 Wall blocking follows the actual floor plan pixels between each measured sample and each heatmap point. It does not require walls to line up with the heatmap cells. Use **Heat detail** to trade smoothness against redraw speed; smaller values draw a finer heatmap.
+
+Use **Set scale** to click two points with a known real-world distance. The app then shows approximate real-world cursor coordinates and draws a scale ruler on the map and exported image.
 
 ## Notes
 
