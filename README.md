@@ -26,6 +26,10 @@ Hover over an existing sample point to inspect its recorded SSID, BSSID, channel
 
 The live panel shows details for the access point you are currently connected to, including BSSID, channel, radio type, security, link rates, and adapter name. New samples save the current AP details into the CSV.
 
+Use **Run ping/speed now** to test current internet latency and download throughput without adding a map sample. The ping host, download URL, and download size are configurable. By default, the app pings `1.1.1.1` and downloads a small Cloudflare speed-test payload.
+
+Enable **Measure on new samples** to attach ping and download results to every new map sample. Samples are still placed immediately; the internet test runs in the background and updates the sample when it completes. Hover over a sample to inspect its saved internet result. **Save CSV** and **Save session** include these internet fields.
+
 ## Survey Tools
 
 Use **Auto sample at cursor** to record a reading every few seconds at the current mouse position on the map. Move the cursor along the floor plan as you walk. The **Auto interval seconds** slider controls the timing.

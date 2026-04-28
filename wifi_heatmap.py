@@ -4,8 +4,11 @@ import math
 import re
 import subprocess
 import sys
+import threading
 import time
 import tkinter as tk
+import urllib.parse
+import urllib.request
 from tkinter import filedialog, messagebox, simpledialog
 
 
@@ -64,6 +67,10 @@ class Sample:
         band="",
         radio_type="",
         authentication="",
+        ping_ms=None,
+        download_mbps=None,
+        speed_tested_at="",
+        speed_error="",
     ):
         self.x = float(x)
         self.y = float(y)
@@ -76,6 +83,10 @@ class Sample:
         self.band = band
         self.radio_type = radio_type
         self.authentication = authentication
+        self.ping_ms = float(ping_ms) if ping_ms not in (None, "") else None
+        self.download_mbps = float(download_mbps) if download_mbps not in (None, "") else None
+        self.speed_tested_at = speed_tested_at
+        self.speed_error = speed_error
 
 
 class APMarker:
@@ -147,6 +158,62 @@ def read_wifi():
     )
 
 
+def measure_ping(host, count=4, timeout_seconds=5):
+    if not host:
+        return None
+    command = ["ping", "-n", str(count), "-w", str(timeout_seconds * 1000), host]
+    if sys.platform != "win32":
+        command = ["ping", "-c", str(count), "-W", str(timeout_seconds), host]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=timeout_seconds * count + 2, check=False)
+    output = result.stdout + "\n" + result.stderr
+
+    match = re.search(r"Average\s*=\s*(\d+)\s*ms", output, re.I)
+    if match:
+        return float(match.group(1))
+    match = re.search(r"=\s*[\d.]+/([\d.]+)/[\d.]+/[\d.]+\s*ms", output)
+    if match:
+        return float(match.group(1))
+
+    times = [float(value) for value in re.findall(r"time[=<]\s*(\d+(?:\.\d+)?)\s*ms", output, re.I)]
+    if not times:
+        raise RuntimeError("Ping did not return a latency result.")
+    return sum(times) / len(times)
+
+
+def measure_download_speed(url, max_bytes=1_000_000, timeout_seconds=10):
+    if not url:
+        return None
+    url = download_url_for_size(url, max_bytes)
+    started = time.perf_counter()
+    total = 0
+    request = urllib.request.Request(url, headers={"User-Agent": "open-heat-wifi-survey/1.0"})
+    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        while total < max_bytes:
+            chunk = response.read(min(64 * 1024, max_bytes - total))
+            if not chunk:
+                break
+            total += len(chunk)
+    elapsed = time.perf_counter() - started
+    if total == 0 or elapsed <= 0:
+        raise RuntimeError("Download test did not return data.")
+    return (total * 8) / elapsed / 1_000_000
+
+
+def download_url_for_size(url, byte_count):
+    parsed = urllib.parse.urlsplit(url)
+    query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    if not any(key.lower() == "bytes" for key, _ in query):
+        return url
+    query = [(key, str(byte_count) if key.lower() == "bytes" else value) for key, value in query]
+    return urllib.parse.urlunsplit(parsed._replace(query=urllib.parse.urlencode(query)))
+
+
+def measure_internet(ping_host, download_url, download_bytes):
+    ping_ms = measure_ping(ping_host) if ping_host else None
+    download_mbps = measure_download_speed(download_url, download_bytes) if download_url else None
+    return ping_ms, download_mbps
+
+
 def rssi_color(rssi, weak_floor=-90, strong_ceiling=-35):
     # Red/orange means weak, yellow is moderate, green is strong.
     weak_floor = int(weak_floor)
@@ -182,6 +249,12 @@ def color_to_tuple(color):
     return int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16)
 
 
+def format_optional_number(value, suffix="", precision=0):
+    if value is None:
+        return "-"
+    return f"{value:.{precision}f}{suffix}"
+
+
 class HeatmapApp:
     def __init__(self, root):
         self.root = root
@@ -202,6 +275,11 @@ class HeatmapApp:
         self.respect_walls = tk.BooleanVar(value=True)
         self.auto_sample = tk.BooleanVar(value=False)
         self.show_weak_zones = tk.BooleanVar(value=True)
+        self.measure_internet_on_sample = tk.BooleanVar(value=False)
+        self.ping_host = tk.StringVar(value="1.1.1.1")
+        self.download_url = tk.StringVar(value="https://speed.cloudflare.com/__down?bytes=1000000")
+        self.download_megabytes = tk.IntVar(value=1)
+        self.internet_status = tk.StringVar(value="Internet test: not run")
         self.cell_size = tk.IntVar(value=18)
         self.max_radius = tk.IntVar(value=180)
         self.wall_threshold = tk.IntVar(value=95)
@@ -276,6 +354,17 @@ class HeatmapApp:
         tk.Checkbutton(panel, text="Auto sample at cursor", variable=self.auto_sample, command=self.toggle_auto_sample, bg="#efeee8").pack(anchor="w")
         tk.Label(panel, text="Auto interval seconds", bg="#efeee8").pack(anchor="w")
         tk.Scale(panel, from_=2, to=30, orient="horizontal", variable=self.auto_interval, bg="#efeee8").pack(fill="x")
+
+        section("Internet Test")
+        tk.Checkbutton(panel, text="Measure on new samples", variable=self.measure_internet_on_sample, bg="#efeee8").pack(anchor="w")
+        tk.Label(panel, text="Ping host", bg="#efeee8").pack(anchor="w")
+        tk.Entry(panel, textvariable=self.ping_host).pack(fill="x", pady=(0, 4))
+        tk.Label(panel, text="Download URL", bg="#efeee8").pack(anchor="w")
+        tk.Entry(panel, textvariable=self.download_url).pack(fill="x", pady=(0, 4))
+        tk.Label(panel, text="Download size MB", bg="#efeee8").pack(anchor="w")
+        tk.Scale(panel, from_=1, to=25, orient="horizontal", variable=self.download_megabytes, bg="#efeee8").pack(fill="x")
+        tk.Button(panel, text="Run ping/speed now", command=self.run_standalone_internet_test).pack(fill="x", pady=2)
+        tk.Label(panel, textvariable=self.internet_status, justify="left", bg="#efeee8", wraplength=220).pack(anchor="w", pady=(2, 6))
 
         section("Heatmap")
         tk.Checkbutton(panel, text="Show grid", variable=self.show_grid, command=self.schedule_draw, bg="#efeee8").pack(anchor="w")
@@ -652,22 +741,75 @@ class HeatmapApp:
             if warn:
                 messagebox.showwarning("No WiFi reading", "No live WiFi signal is available yet.")
             return
-        self.samples.append(
-            Sample(
-                x,
-                y,
-                self.current.rssi_dbm,
-                self.current.ssid,
-                self.current.signal_percent,
-                bssid=self.current.bssid,
-                channel=self.current.channel,
-                band=self.current.band,
-                radio_type=self.current.radio_type,
-                authentication=self.current.authentication,
-            )
+        sample = Sample(
+            x,
+            y,
+            self.current.rssi_dbm,
+            self.current.ssid,
+            self.current.signal_percent,
+            bssid=self.current.bssid,
+            channel=self.current.channel,
+            band=self.current.band,
+            radio_type=self.current.radio_type,
+            authentication=self.current.authentication,
         )
+        self.samples.append(sample)
+        index = len(self.samples) - 1
         if redraw:
             self.draw()
+        if self.measure_internet_on_sample.get():
+            self.start_internet_test(sample_index=index, sample=sample, redraw=redraw)
+
+    def internet_test_config(self):
+        return (
+            self.ping_host.get().strip(),
+            self.download_url.get().strip(),
+            max(1, int(self.download_megabytes.get())) * 1_000_000,
+        )
+
+    def start_internet_test(self, sample_index=None, sample=None, redraw=True):
+        ping_host, download_url, download_bytes = self.internet_test_config()
+        if not ping_host and not download_url:
+            messagebox.showwarning("Internet test", "Enter a ping host or download URL first.")
+            return
+        target_text = f"sample {sample_index + 1}" if sample_index is not None else "manual test"
+        self.internet_status.set(f"Internet test running for {target_text}...")
+
+        def worker():
+            error = ""
+            ping_ms = None
+            download_mbps = None
+            try:
+                ping_ms, download_mbps = measure_internet(ping_host, download_url, download_bytes)
+            except (OSError, subprocess.SubprocessError, RuntimeError, ValueError) as exc:
+                error = str(exc)
+            self.root.after(0, lambda: self.finish_internet_test(sample_index, sample, ping_ms, download_mbps, error, redraw))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def run_standalone_internet_test(self):
+        self.start_internet_test(sample_index=None, redraw=False)
+
+    def finish_internet_test(self, sample_index, sample, ping_ms, download_mbps, error, redraw):
+        tested_at = time.strftime("%Y-%m-%d %H:%M:%S")
+        if sample is not None and sample in self.samples:
+            sample.ping_ms = ping_ms
+            sample.download_mbps = download_mbps
+            sample.speed_tested_at = tested_at
+            sample.speed_error = error
+            if redraw:
+                self.draw()
+
+        parts = []
+        if ping_ms is not None:
+            parts.append(f"Ping {ping_ms:.0f} ms")
+        if download_mbps is not None:
+            parts.append(f"Down {download_mbps:.1f} Mbps")
+        if error:
+            parts.append(f"Error: {error}")
+        if not parts:
+            parts.append("No result")
+        self.internet_status.set("Internet test:\n" + " | ".join(parts))
 
     def add_center_sample(self):
         left, top, right, bottom = self.canvas_bounds()
@@ -775,19 +917,29 @@ class HeatmapApp:
 
     def sample_details_text(self, index):
         sample = self.samples[index]
-        return "\n".join(
+        lines = [
+            f"Sample {index + 1}",
+            f"RSSI: {sample.rssi:g} dBm | Signal: {sample.signal_percent or '-'}%",
+            f"SSID: {sample.ssid or '(hidden)'}",
+            f"BSSID: {sample.bssid or '-'}",
+            f"Band/channel: {sample.band or '-'} / {sample.channel or '-'}",
+            f"Radio: {sample.radio_type or '-'}",
+            f"Security: {sample.authentication or '-'}",
+        ]
+        if sample.ping_ms is not None or sample.download_mbps is not None or sample.speed_error:
+            lines.append(f"Ping: {format_optional_number(sample.ping_ms, ' ms')}")
+            lines.append(f"Download: {format_optional_number(sample.download_mbps, ' Mbps', precision=1)}")
+            if sample.speed_error:
+                lines.append(f"Internet test error: {sample.speed_error}")
+            if sample.speed_tested_at:
+                lines.append(f"Internet tested: {sample.speed_tested_at}")
+        lines.extend(
             [
-                f"Sample {index + 1}",
-                f"RSSI: {sample.rssi:g} dBm | Signal: {sample.signal_percent or '-'}%",
-                f"SSID: {sample.ssid or '(hidden)'}",
-                f"BSSID: {sample.bssid or '-'}",
-                f"Band/channel: {sample.band or '-'} / {sample.channel or '-'}",
-                f"Radio: {sample.radio_type or '-'}",
-                f"Security: {sample.authentication or '-'}",
                 f"Position: {sample.x:.1f}, {sample.y:.1f}",
                 f"Recorded: {sample.created_at}",
             ]
         )
+        return "\n".join(lines)
 
     def draw_sample_tooltip(self, index, x, y):
         self.hide_sample_tooltip()
@@ -928,6 +1080,10 @@ class HeatmapApp:
                     "channel",
                     "radio_type",
                     "authentication",
+                    "ping_ms",
+                    "download_mbps",
+                    "speed_tested_at",
+                    "speed_error",
                     "created_at",
                 ]
             )
@@ -944,6 +1100,10 @@ class HeatmapApp:
                         sample.channel,
                         sample.radio_type,
                         sample.authentication,
+                        sample.ping_ms if sample.ping_ms is not None else "",
+                        sample.download_mbps if sample.download_mbps is not None else "",
+                        sample.speed_tested_at,
+                        sample.speed_error,
                         sample.created_at,
                     ]
                 )
@@ -968,6 +1128,10 @@ class HeatmapApp:
                         row.get("band", ""),
                         row.get("radio_type", ""),
                         row.get("authentication", ""),
+                        row.get("ping_ms", ""),
+                        row.get("download_mbps", ""),
+                        row.get("speed_tested_at", ""),
+                        row.get("speed_error", ""),
                     )
                 )
         self.samples = loaded
@@ -994,6 +1158,10 @@ class HeatmapApp:
                 "color_weak": self.color_weak.get(),
                 "color_strong": self.color_strong.get(),
                 "weak_zone_threshold": self.weak_zone_threshold.get(),
+                "measure_internet_on_sample": self.measure_internet_on_sample.get(),
+                "ping_host": self.ping_host.get(),
+                "download_url": self.download_url.get(),
+                "download_megabytes": self.download_megabytes.get(),
             },
             "scale": {
                 "pixels": self.scale_pixels,
@@ -1027,6 +1195,10 @@ class HeatmapApp:
         self.color_weak.set(int(settings.get("color_weak", self.color_weak.get())))
         self.color_strong.set(int(settings.get("color_strong", self.color_strong.get())))
         self.weak_zone_threshold.set(int(settings.get("weak_zone_threshold", self.weak_zone_threshold.get())))
+        self.measure_internet_on_sample.set(bool(settings.get("measure_internet_on_sample", self.measure_internet_on_sample.get())))
+        self.ping_host.set(settings.get("ping_host", self.ping_host.get()) or "")
+        self.download_url.set(settings.get("download_url", self.download_url.get()) or "")
+        self.download_megabytes.set(int(settings.get("download_megabytes", self.download_megabytes.get())))
 
         scale = data.get("scale", {})
         self.scale_pixels = float(scale["pixels"]) if scale.get("pixels") else None
@@ -1060,6 +1232,10 @@ class HeatmapApp:
             "channel": sample.channel,
             "radio_type": sample.radio_type,
             "authentication": sample.authentication,
+            "ping_ms": sample.ping_ms,
+            "download_mbps": sample.download_mbps,
+            "speed_tested_at": sample.speed_tested_at,
+            "speed_error": sample.speed_error,
             "created_at": sample.created_at,
         }
 
@@ -1076,6 +1252,10 @@ class HeatmapApp:
             item.get("band", ""),
             item.get("radio_type", ""),
             item.get("authentication", ""),
+            item.get("ping_ms"),
+            item.get("download_mbps"),
+            item.get("speed_tested_at", ""),
+            item.get("speed_error", ""),
         )
 
     def export_image(self):
