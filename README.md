@@ -14,6 +14,24 @@ No third-party packages are required. The app uses Python's built-in Tkinter UI 
 netsh wlan show interfaces
 ```
 
+## Web UI Preview
+
+There is also a local browser UI alternative:
+
+```powershell
+python .\webui_server.py
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8765
+```
+
+The web UI keeps the existing no-dependency Python backend for live WiFi readings, but uses a browser
+canvas for the map, heatmap, floor plan loading, CSV export, and session save/load. It is currently a
+clean preview UI, not a full replacement for every Tkinter feature.
+
 ## How to Use
 
 1. Connect your laptop to the WiFi network you want to measure.
@@ -27,6 +45,8 @@ Hover over an existing sample point to inspect its recorded SSID, BSSID, channel
 The live panel shows details for the access point you are currently connected to, including BSSID, channel, radio type, security, link rates, and adapter name. New samples save the current AP details into the CSV.
 
 Use **Run ping/speed now** to test current internet latency and download throughput without adding a map sample. The ping host, download URL, and download size are configurable. By default, the app pings `1.1.1.1` and downloads a small Cloudflare speed-test payload.
+
+Use **Run diagnostics report** in the desktop app, or **Run Diagnostics** in the web UI, to collect a troubleshooting snapshot. The report includes the current WiFi connection, ping and DNS checks, IP adapter details, and nearby WiFi networks discovered by Windows. Save the JSON report when you need to compare locations or share raw diagnostics.
 
 Enable **Measure on new samples** to attach ping and download results to every new map sample. Samples are still placed immediately; the internet test runs in the background and updates the sample when it completes. Hover over a sample to inspect its saved internet result. **Save CSV** and **Save session** include these internet fields.
 

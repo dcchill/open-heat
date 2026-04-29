@@ -1,7 +1,9 @@
 import csv
 import json
 import math
+import platform
 import re
+import socket
 import subprocess
 import sys
 import threading
@@ -9,7 +11,7 @@ import time
 import tkinter as tk
 import urllib.parse
 import urllib.request
-from tkinter import filedialog, messagebox, simpledialog
+from tkinter import filedialog, messagebox, scrolledtext, simpledialog
 
 
 WIDTH = 1000
@@ -156,6 +158,170 @@ def read_wifi():
         transmit_rate=field("Transmit rate (Mbps)"),
         profile=field("Profile"),
     )
+
+
+def run_diagnostic_command(command, timeout_seconds=8):
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"ok": False, "output": "", "error": str(exc)}
+    output = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
+    return {"ok": result.returncode == 0, "output": output.strip(), "error": "" if result.returncode == 0 else output.strip()}
+
+
+def parse_netsh_networks(output):
+    networks = []
+    current = None
+    current_bssid = None
+    for line in output.splitlines():
+        stripped = line.strip()
+        ssid_match = re.match(r"SSID\s+\d+\s*:\s*(.*)", stripped, re.I)
+        if ssid_match:
+            if current:
+                networks.append(current)
+            current = {"ssid": ssid_match.group(1).strip(), "authentication": "", "encryption": "", "bssids": []}
+            current_bssid = None
+            continue
+        if current is None:
+            continue
+        field_match = re.match(r"([^:]+?)\s*:\s*(.*)", stripped)
+        if not field_match:
+            continue
+        key = field_match.group(1).strip().lower()
+        value = field_match.group(2).strip()
+        if key == "authentication":
+            current["authentication"] = value
+        elif key == "encryption":
+            current["encryption"] = value
+        elif key.startswith("bssid"):
+            current_bssid = {"bssid": value, "signal_percent": None, "radio_type": "", "channel": ""}
+            current["bssids"].append(current_bssid)
+        elif current_bssid is not None and key == "signal":
+            match = re.search(r"(\d+)", value)
+            current_bssid["signal_percent"] = int(match.group(1)) if match else None
+        elif current_bssid is not None and key == "radio type":
+            current_bssid["radio_type"] = value
+        elif current_bssid is not None and key == "channel":
+            current_bssid["channel"] = value
+    if current:
+        networks.append(current)
+    return networks
+
+
+def summarize_networks(networks, limit=12):
+    summary = []
+    for network in networks:
+        bssids = network.get("bssids", [])
+        strongest = max((item.get("signal_percent") or 0 for item in bssids), default=None)
+        channels = sorted({item.get("channel") for item in bssids if item.get("channel")}, key=lambda value: int(value) if str(value).isdigit() else 999)
+        summary.append({
+            "ssid": network.get("ssid", ""),
+            "authentication": network.get("authentication", ""),
+            "encryption": network.get("encryption", ""),
+            "bssid_count": len(bssids),
+            "strongest_signal_percent": strongest,
+            "channels": channels,
+        })
+    summary.sort(key=lambda item: item["strongest_signal_percent"] if item["strongest_signal_percent"] is not None else -1, reverse=True)
+    return summary[:limit]
+
+
+def parse_ipconfig(output):
+    adapters = []
+    current = None
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        adapter_match = re.match(r"^([^\s].* adapter .+):\s*$", line, re.I)
+        if adapter_match:
+            current = {"name": adapter_match.group(1).strip(), "ipv4": [], "ipv6": [], "gateway": [], "dns": []}
+            adapters.append(current)
+            continue
+        if current is None:
+            continue
+        field_match = re.match(r"\s*([^:]+?)\s*:\s*(.*)$", line)
+        if not field_match:
+            continue
+        key = re.sub(r"\s+", " ", field_match.group(1).replace(".", " ")).strip().lower()
+        value = field_match.group(2).strip()
+        if not value:
+            continue
+        if "ipv4 address" in key:
+            current["ipv4"].append(value.split("(")[0].strip())
+        elif "ipv6 address" in key and "temporary" not in key:
+            current["ipv6"].append(value.split("(")[0].strip())
+        elif "default gateway" in key:
+            current["gateway"].append(value)
+        elif "dns servers" in key:
+            current["dns"].append(value)
+    return adapters
+
+
+def collect_network_diagnostics(ping_host="1.1.1.1", dns_host="cloudflare.com"):
+    wifi = read_wifi()
+    wifi_data = {
+        "ssid": wifi.ssid,
+        "bssid": wifi.bssid,
+        "signal_percent": wifi.signal_percent,
+        "rssi_dbm": wifi.rssi_dbm,
+        "adapter": wifi.adapter,
+        "state": wifi.state,
+        "radio_type": wifi.radio_type,
+        "authentication": wifi.authentication,
+        "cipher": wifi.cipher,
+        "channel": wifi.channel,
+        "band": wifi.band,
+        "receive_rate": wifi.receive_rate,
+        "transmit_rate": wifi.transmit_rate,
+        "profile": wifi.profile,
+    }
+
+    diagnostics = {
+        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "platform": platform.platform(),
+        "python": sys.version.split()[0],
+        "hostname": socket.gethostname(),
+        "wifi": wifi_data,
+        "checks": [],
+        "ip_adapters": [],
+        "nearby_networks": [],
+    }
+
+    if sys.platform == "win32":
+        ipconfig = run_diagnostic_command(["ipconfig", "/all"])
+        if ipconfig["ok"]:
+            diagnostics["ip_adapters"] = parse_ipconfig(ipconfig["output"])
+        else:
+            diagnostics["checks"].append({"name": "ipconfig", "ok": False, "detail": ipconfig["error"] or "ipconfig failed"})
+
+        networks = run_diagnostic_command(["netsh", "wlan", "show", "networks", "mode=bssid"])
+        if networks["ok"]:
+            diagnostics["nearby_networks"] = summarize_networks(parse_netsh_networks(networks["output"]))
+        else:
+            diagnostics["checks"].append({"name": "Nearby networks", "ok": False, "detail": networks["error"] or "netsh scan failed"})
+
+    if ping_host:
+        try:
+            latency = measure_ping(ping_host, count=2, timeout_seconds=3)
+            diagnostics["checks"].append({"name": f"Ping {ping_host}", "ok": latency is not None, "detail": f"{latency:.0f} ms" if latency is not None else "No latency result"})
+        except (OSError, RuntimeError, TimeoutError, subprocess.SubprocessError) as exc:
+            diagnostics["checks"].append({"name": f"Ping {ping_host}", "ok": False, "detail": str(exc)})
+
+    if dns_host:
+        try:
+            addresses = socket.getaddrinfo(dns_host, None, proto=socket.IPPROTO_TCP)
+            unique = sorted({item[4][0] for item in addresses})
+            diagnostics["checks"].append({"name": f"DNS {dns_host}", "ok": bool(unique), "detail": ", ".join(unique[:4])})
+        except OSError as exc:
+            diagnostics["checks"].append({"name": f"DNS {dns_host}", "ok": False, "detail": str(exc)})
+
+    return diagnostics
 
 
 def measure_ping(host, count=4, timeout_seconds=5):
@@ -364,6 +530,7 @@ class HeatmapApp:
         tk.Label(panel, text="Download size MB", bg="#efeee8").pack(anchor="w")
         tk.Scale(panel, from_=1, to=25, orient="horizontal", variable=self.download_megabytes, bg="#efeee8").pack(fill="x")
         tk.Button(panel, text="Run ping/speed now", command=self.run_standalone_internet_test).pack(fill="x", pady=2)
+        tk.Button(panel, text="Run diagnostics report", command=self.run_diagnostics_report).pack(fill="x", pady=2)
         tk.Label(panel, textvariable=self.internet_status, justify="left", bg="#efeee8", wraplength=220).pack(anchor="w", pady=(2, 6))
 
         section("Heatmap")
@@ -789,6 +956,91 @@ class HeatmapApp:
 
     def run_standalone_internet_test(self):
         self.start_internet_test(sample_index=None, redraw=False)
+
+    def run_diagnostics_report(self):
+        ping_host = self.ping_host.get().strip()
+        self.internet_status.set("Diagnostics running...")
+
+        def worker():
+            try:
+                report = collect_network_diagnostics(ping_host=ping_host, dns_host="cloudflare.com")
+                error = ""
+            except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+                report = None
+                error = str(exc)
+            self.root.after(0, lambda: self.finish_diagnostics_report(report, error))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def finish_diagnostics_report(self, report, error):
+        if error:
+            self.internet_status.set(f"Diagnostics error: {error}")
+            messagebox.showerror("Diagnostics", error)
+            return
+        self.internet_status.set(f"Diagnostics complete: {report.get('created_at', '-')}")
+        self.show_diagnostics_window(report)
+
+    def show_diagnostics_window(self, report):
+        window = tk.Toplevel(self.root)
+        window.title("Network diagnostics")
+        window.geometry("760x560")
+        text = scrolledtext.ScrolledText(window, wrap="word", font=("Consolas", 10))
+        text.pack(fill="both", expand=True, padx=10, pady=(10, 6))
+        text.insert("1.0", self.format_diagnostics_report(report))
+        text.configure(state="disabled")
+
+        buttons = tk.Frame(window)
+        buttons.pack(fill="x", padx=10, pady=(0, 10))
+        tk.Button(buttons, text="Save JSON report", command=lambda: self.save_diagnostics_report(report)).pack(side="left")
+        tk.Button(buttons, text="Close", command=window.destroy).pack(side="right")
+
+    def save_diagnostics_report(self, report):
+        path = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("Diagnostics report", "*.json"), ("All files", "*.*")],
+            title="Save diagnostics report",
+        )
+        if not path:
+            return
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(report, handle, indent=2)
+
+    def format_diagnostics_report(self, report):
+        wifi = report.get("wifi", {})
+        lines = [
+            f"Created: {report.get('created_at', '-')}",
+            f"Host: {report.get('hostname', '-')}",
+            f"Platform: {report.get('platform', '-')}",
+            "",
+            "Connection",
+            f"  SSID: {wifi.get('ssid') or '(hidden)'}",
+            f"  BSSID: {wifi.get('bssid') or '-'}",
+            f"  State: {wifi.get('state') or '-'}",
+            f"  RSSI: {format_optional_number(wifi.get('rssi_dbm'), ' dBm')}",
+            f"  Signal: {format_optional_number(wifi.get('signal_percent'), '%')}",
+            f"  Channel: {wifi.get('channel') or '-'}",
+            f"  Link: {wifi.get('receive_rate') or '-'} down / {wifi.get('transmit_rate') or '-'} up Mbps",
+            "",
+            "Checks",
+        ]
+        for check in report.get("checks", []):
+            lines.append(f"  {'OK' if check.get('ok') else 'FAIL'} {check.get('name', '-')}: {check.get('detail', '-')}")
+        lines.append("")
+        lines.append("IP Adapters")
+        for adapter in report.get("ip_adapters", []):
+            lines.append(f"  {adapter.get('name', '-')}")
+            lines.append(f"    IPv4: {', '.join(adapter.get('ipv4', [])) or '-'}")
+            lines.append(f"    Gateway: {', '.join(adapter.get('gateway', [])) or '-'}")
+            lines.append(f"    DNS: {', '.join(adapter.get('dns', [])) or '-'}")
+        lines.append("")
+        lines.append("Nearby Networks")
+        for network in report.get("nearby_networks", []):
+            channels = ", ".join(network.get("channels", [])) or "-"
+            lines.append(
+                f"  {network.get('ssid') or '(hidden)'} | {network.get('strongest_signal_percent', '-')}% | "
+                f"{network.get('bssid_count', 0)} BSSID | Ch {channels} | {network.get('authentication') or '-'}"
+            )
+        return "\n".join(lines)
 
     def finish_internet_test(self, sample_index, sample, ping_ms, download_mbps, error, redraw):
         tested_at = time.strftime("%Y-%m-%d %H:%M:%S")

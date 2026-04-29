@@ -1,0 +1,305 @@
+:root {
+  --bg: #e4e8e6;
+  --surface: #fbfbf8;
+  --panel: #f3f5f3;
+  --ink: #172026;
+  --muted: #627078;
+  --line: #c8d0ce;
+  --accent: #126b72;
+  --danger: #b33333;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  background: var(--bg);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  min-height: 100vh;
+}
+
+.workspace {
+  position: relative;
+  min-width: 0;
+  padding: 18px;
+}
+
+#map {
+  display: block;
+  width: 100%;
+  height: calc(100vh - 36px);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: crosshair;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  overflow: auto;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 24px;
+  line-height: 1.1;
+}
+
+h2 {
+  font-size: 14px;
+}
+
+header p {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+  white-space: pre-line;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.metrics div,
+.details,
+.settings {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.metrics div {
+  padding: 10px;
+}
+
+.metrics span,
+dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.metrics strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+button,
+.file-button {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: center;
+}
+
+button:first-child {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.file-button input {
+  display: none;
+}
+
+section {
+  display: grid;
+  gap: 10px;
+}
+
+section:not(.workspace):not(.metrics):not(.details) {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px;
+  background: #fff;
+}
+
+section label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+section label input[type="text"] {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: pre-line;
+}
+
+.settings {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.settings label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.settings label:last-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.details {
+  padding: 12px;
+}
+
+.diagnostics-report {
+  display: grid;
+  gap: 8px;
+  max-height: 360px;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  font-size: 12px;
+}
+
+.diagnostics-report:empty {
+  display: none;
+}
+
+.diagnostics-report h3 {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+
+.diagnostics-report ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.diagnostics-report li {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 8px;
+  background: #f8faf9;
+}
+
+.diagnostics-report li.ok {
+  border-color: #8dbf9d;
+}
+
+.diagnostics-report li.bad {
+  border-color: #d59696;
+}
+
+.diagnostics-report li span {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: 94px minmax(0, 1fr);
+  gap: 6px 8px;
+  margin: 10px 0 0;
+}
+
+dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 5;
+  max-width: 280px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #fff;
+  background: rgba(22, 28, 31, 0.92);
+  font-size: 12px;
+  line-height: 1.35;
+  pointer-events: none;
+  white-space: pre-line;
+}
+
+@media (max-width: 860px) {
+  .app {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace {
+    padding: 10px;
+  }
+
+  #map {
+    height: 58vh;
+  }
+
+  .panel {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+}

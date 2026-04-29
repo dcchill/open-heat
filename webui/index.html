@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Open Heat Web UI</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app">
+      <section class="workspace">
+        <canvas id="map" width="760" height="620" aria-label="Survey map"></canvas>
+        <div id="tooltip" class="tooltip" hidden></div>
+      </section>
+
+      <aside class="panel">
+        <header>
+          <h1>Open Heat</h1>
+          <p id="status">Reading WiFi...</p>
+        </header>
+
+        <section class="metrics">
+          <div><span>RSSI</span><strong id="rssi">-</strong></div>
+          <div><span>Signal</span><strong id="signal">-</strong></div>
+          <div><span>Samples</span><strong id="count">0</strong></div>
+          <div><span>Weak Area</span><strong id="weakArea">-</strong></div>
+        </section>
+
+        <section>
+          <h2>Sampling</h2>
+          <label class="check"><input id="addOnClick" type="checkbox" checked> Add sample on click</label>
+          <label class="check"><input id="autoSample" type="checkbox"> Auto sample at cursor</label>
+          <label>Auto interval seconds <input id="autoInterval" type="range" min="2" max="30" value="5"></label>
+          <div class="actions">
+            <button id="addCenter" type="button">Add Center</button>
+            <button id="undo" type="button">Undo</button>
+            <button id="clear" type="button">Clear Samples</button>
+          </div>
+        </section>
+
+        <section>
+          <h2>Internet Test</h2>
+          <label class="check"><input id="measureOnSample" type="checkbox"> Measure on new samples</label>
+          <label>Ping host <input id="pingHost" type="text" value="1.1.1.1"></label>
+          <label>Download URL <input id="downloadUrl" type="text" value="https://speed.cloudflare.com/__down?bytes=1000000"></label>
+          <label>Download size MB <input id="downloadMb" type="range" min="1" max="25" value="1"></label>
+          <button id="runInternet" type="button">Run Ping/Speed Now</button>
+          <p id="internetStatus" class="muted">Internet test: not run</p>
+        </section>
+
+        <section>
+          <h2>Diagnostics</h2>
+          <label>DNS lookup host <input id="dnsHost" type="text" value="cloudflare.com"></label>
+          <div class="actions">
+            <button id="runDiagnostics" type="button">Run Diagnostics</button>
+            <button id="exportDiagnostics" type="button">Save Report</button>
+          </div>
+          <p id="diagnosticsStatus" class="muted">Diagnostics: not run</p>
+          <div id="diagnosticsReport" class="diagnostics-report"></div>
+        </section>
+
+        <section>
+          <h2>Heatmap</h2>
+          <label class="check"><input id="showGrid" type="checkbox" checked> Show grid</label>
+          <label class="check"><input id="respectWalls" type="checkbox" checked> Keep heat inside black walls</label>
+          <label class="check"><input id="showWeak" type="checkbox" checked> Highlight weak zones</label>
+          <label>Heat detail <input id="cellSize" type="range" min="6" max="60" value="18"></label>
+          <label>Blend radius <input id="radius" type="range" min="60" max="320" value="180"></label>
+          <label>Weak color dBm <input id="weakColor" type="range" min="-100" max="-65" value="-90"></label>
+          <label>Strong color dBm <input id="strongColor" type="range" min="-70" max="-25" value="-35"></label>
+          <label>Weak-zone threshold <input id="weakThreshold" type="range" min="-90" max="-45" value="-70"></label>
+          <label>Wall darkness <input id="wallThreshold" type="range" min="35" max="180" value="95"></label>
+        </section>
+
+        <section>
+          <h2>Scale</h2>
+          <p id="coords" class="muted">x: -, y: -</p>
+          <p id="scaleText" class="muted">Scale: not set</p>
+          <div class="actions">
+            <button id="setScale" type="button">Set Scale</button>
+            <button id="clearScale" type="button">Clear Scale</button>
+          </div>
+        </section>
+
+        <section>
+          <h2>Markers</h2>
+          <div class="actions">
+            <button id="addAp" type="button">Add AP Marker</button>
+            <button id="clearAp" type="button">Clear APs</button>
+          </div>
+        </section>
+
+        <section>
+          <h2>Files</h2>
+          <div class="actions">
+            <button id="exportCsv" type="button">Save CSV</button>
+            <label class="file-button">Load CSV<input id="loadCsv" type="file" accept=".csv,text/csv"></label>
+            <button id="exportJson" type="button">Save Session</button>
+            <label class="file-button">Load Session<input id="loadJson" type="file" accept="application/json,.json"></label>
+            <button id="exportPng" type="button">Export Image</button>
+            <label class="file-button">Floor Plan<input id="floorPlan" type="file" accept="image/png,image/gif,image/jpeg,image/webp"></label>
+            <button id="clearFloor" type="button">Clear Floor</button>
+          </div>
+        </section>
+
+        <section class="details">
+          <h2>Live Adapter</h2>
+          <dl id="adapterDetails"></dl>
+        </section>
+      </aside>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>
